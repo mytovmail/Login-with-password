@@ -115,7 +115,12 @@
                     <span class="text-4xl">🍿</span>
                     <div>
                         <h1 class="text-2xl md:text-3xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 via-pink-500 to-red-500">מאגר ה0רטים והמשחקים</h1>
-                        <p class="text-xs text-purple-200 tracking-wider">מתעדכן אוטומטית • חינם לחלוטין</p>
+                        <div class="flex flex-wrap gap-2 items-center justify-center md:justify-start mt-1">
+                            <p class="text-xs text-purple-200 tracking-wider">מתעדכן אוטומטית • חינם לחלוטין</p>
+                            <button onclick="showNewFiles()" class="text-xs bg-white/10 hover:bg-white/20 border border-white/20 px-3 py-1 rounded-full transition shadow-lg text-pink-300 font-bold flex items-center gap-1">
+                                <span>✨</span> קבצים חדשים
+                            </button>
+                        </div>
                     </div>
                 </div>
                 
@@ -181,6 +186,7 @@
         let fileSystem = { name: "ראשי", type: "folder", children: {} };
         let currentPathArr = []; 
         let allSearchableItems = []; 
+        let isSearchMode = false; // נוסף משתנה שבודק אם אנחנו במצב חיפוש/חדשים
         
         // משתנים למנגנון הטעינה העצלה (Lazy Loading)
         const BATCH_SIZE = 50; 
@@ -301,7 +307,7 @@
             fileSystem.children = {}; 
             allSearchableItems = [];
             
-            jsonData.forEach(item => {
+            jsonData.forEach((item, index) => {
                 let pathStr = item["נתיב_תיקיה"] || "";
                 let fileName = item["שם_קובץ"] || "";
                 const type = item["סוג"] || "";
@@ -313,7 +319,8 @@
                 // ניקוי לוכסנים מיותרים בסוף נתיב (למשל אם כתבו "ראשי/" במקום "ראשי")
                 if (pathStr.endsWith('/')) pathStr = pathStr.slice(0, -1);
 
-                const fileObj = { name: fileName, type: type, link: link, path: pathStr, date: creationDate };
+                // שמירת המיקום המקורי (index) כגיבוי למקרה שהתאריך חסר
+                const fileObj = { name: fileName, type: type, link: link, path: pathStr, date: creationDate, originalIndex: index };
                 
                 // פיצול הנתיב והתעלמות מרווחים ריקים
                 const folders = pathStr.split('/').filter(f => f.trim() !== "");
@@ -378,6 +385,7 @@
         }
 
         function renderCurrentFolder() {
+            isSearchMode = false;
             let currentNode = fileSystem;
             for (let folder of currentPathArr) { if(currentNode.children[folder]) currentNode = currentNode.children[folder]; }
             
@@ -395,7 +403,7 @@
         // ==========================================
         // מנגנון הטעינה העצלה (Lazy Loading) המשודרג
         // ==========================================
-        function drawGrid(items) {
+        function drawGrid(items, sortByDate = false) {
             const gridDiv = document.getElementById('explorerGrid');
             gridDiv.innerHTML = '';
             currentlyDisplayedCount = 0;
@@ -408,6 +416,13 @@
             
             // מיון הרשימה המלאה פעם אחת מראש
             currentDisplayItems = items.sort((a, b) => {
+                if (sortByDate) {
+                    let dateA = new Date(a.date).getTime() || 0;
+                    let dateB = new Date(b.date).getTime() || 0;
+                    if (dateA !== dateB) return dateB - dateA; // החדשים ביותר קודם
+                    return (b.originalIndex || 0) - (a.originalIndex || 0); // גיבוי: השורות התחתונות בשיטס קודם
+                }
+
                 if (a.type === "folder" && b.type !== "folder") return -1;
                 if (a.type !== "folder" && b.type === "folder") return 1;
                 return a.name.localeCompare(b.name);
@@ -455,6 +470,7 @@
                                     <span class="text-4xl filter drop-shadow-md">${icon}</span>
                                 </div>
                                 <h3 class="font-bold text-white text-md mb-2 line-clamp-3 leading-snug drop-shadow-md">${item.name}</h3>
+                                ${isSearchMode && item.path ? `<div class="text-[11px] text-gray-300 bg-white/5 px-2 py-1 rounded-lg mt-auto w-full line-clamp-2 break-words leading-tight border border-white/5" title="${item.path}">📁 ${item.path}</div>` : ''}
                             </div>
                         </a>`;
                 }
@@ -488,18 +504,34 @@
             intersectionObserver.observe(sentinel);
         }
 
+        function showNewFiles() {
+            clearSearch(false);
+            document.getElementById('breadcrumbsContainer').parentElement.classList.add('hidden');
+            const searchHeader = document.getElementById('searchResultsHeader');
+            searchHeader.classList.remove('hidden');
+            
+            isSearchMode = true;
+            document.getElementById('searchCount').innerText = "הקבצים החדשים ביותר שעלו למערכת";
+            
+            // סינון רק של קבצים (ללא תיקיות)
+            let filesOnly = allSearchableItems.filter(item => item.type !== 'folder');
+            drawGrid(filesOnly, true);
+        }
+
         function handleSearch() {
             const searchTerm = document.getElementById('searchInput').value.toLowerCase();
             const breadcrumbs = document.getElementById('breadcrumbsContainer');
             const searchHeader = document.getElementById('searchResultsHeader');
 
             if (searchTerm === "") {
+                isSearchMode = false;
                 breadcrumbs.parentElement.classList.remove('hidden'); 
                 searchHeader.classList.add('hidden');
                 renderCurrentFolder(); 
                 return;
             }
             
+            isSearchMode = true;
             breadcrumbs.parentElement.classList.add('hidden'); 
             searchHeader.classList.remove('hidden');
             document.getElementById('searchCount').innerText = "מחפש...";
@@ -513,7 +545,7 @@
 
             // עדכון כותרת (כעת הגלילה החכמה מטפלת בעומס, אז אפשר להציג את כל התוצאות ללא הגבלה!)
             document.getElementById('searchCount').innerText = `${results.length} תוצאות`;
-            drawGrid(results);
+            drawGrid(results, false);
         }
 
         let searchTimeout = null;
@@ -528,6 +560,7 @@
             document.getElementById('searchInput').value = "";
             document.getElementById('breadcrumbsContainer').parentElement.classList.remove('hidden');
             document.getElementById('searchResultsHeader').classList.add('hidden');
+            isSearchMode = false;
             if(render) renderCurrentFolder();
         }
 
